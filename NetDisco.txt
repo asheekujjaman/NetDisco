@@ -1,0 +1,93 @@
+#Step:1
+#Now stop any manual Netdisco process:
+sudo su - netdisco
+~/bin/netdisco-web stop
+~/bin/netdisco-backend stop
+exit
+
+#Step:2
+#Now Create & edit the web service:
+sudo nano /etc/systemd/system/netdisco-web.service
+#add text in file
+[Unit]
+Description=Netdisco Web Service
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=forking
+User=netdisco
+Group=netdisco
+WorkingDirectory=/home/netdisco
+Environment=HOME=/home/netdisco
+Environment=PATH=/home/netdisco/bin:/home/netdisco/perl5/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PERL5LIB=/home/netdisco/perl5/lib/perl5
+ExecStart=/home/netdisco/bin/netdisco-web start
+ExecStop=/home/netdisco/bin/netdisco-web stop
+ExecReload=/home/netdisco/bin/netdisco-web restart
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+
+#Step:3
+#Now create & edit backend service:
+sudo nano /etc/systemd/system/netdisco-backend.service
+#add text in file
+[Unit]
+Description=Netdisco Backend Service
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=forking
+User=netdisco
+Group=netdisco
+WorkingDirectory=/home/netdisco
+Environment=HOME=/home/netdisco
+Environment=PATH=/home/netdisco/bin:/home/netdisco/perl5/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PERL5LIB=/home/netdisco/perl5/lib/perl5
+ExecStart=/home/netdisco/bin/netdisco-backend start
+ExecStop=/home/netdisco/bin/netdisco-backend stop
+ExecReload=/home/netdisco/bin/netdisco-backend restart
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+
+#Step:4
+#Now reload systemd:
+sudo systemctl daemon-reload
+
+#Start services:
+sudo systemctl start netdisco-web
+sudo systemctl start netdisco-backend
+
+#Check status:
+sudo systemctl status netdisco-web
+sudo systemctl status netdisco-backend
+
+#Enable auto-start:
+sudo systemctl enable netdisco-web
+sudo systemctl enable netdisco-backend
+
+
+#Discover and ip binding
+sudo -iu netdisco
+~/bin/netdisco-do discover -d <CS-core-switch-ip>
+~/bin/netdisco-do discover -d <AS2-ip> -d <AS3-ip> -d <AS4-ip>
+~/bin/netdisco-do macsuck -d <AS2-ip> -d <AS3-ip> -d <AS4-ip>
+~/bin/netdisco-do arpnip -d <CS-core-switch-or-router-ip>
+
+enable
+configure terminal
+
+username ashik privilege 15 secret ashik
+enable secret ashik
+line vty 0 4
+login local
+exit
+snmp-server community public RO
+snmp-server enable traps
