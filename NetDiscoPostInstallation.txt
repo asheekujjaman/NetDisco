@@ -1,0 +1,299 @@
+#SNMP Configure in switch
+username ashik privilege 15 secret ashik
+enable secret ashik
+line vty 0 4
+login local
+exit
+snmp-server community public RO
+snmp-server enable traps
+
+
+Check SNMP from Netdisco Server
+-------------------------------
+Example command:
+snmpwalk -v2c -c YOUR_SNMP_COMMUNITY 10.10.99.1 sysName.0
+
+If SNMP works, output should show the switch name.
+Example:
+SNMPv2-MIB::sysName.0 = STRING: Core-Switch
+
+snmpwalk -v2c -c public 192.168.8.139 .1.3.6.1.2.1.1.1.0
+
+
+
+
+#Discover and ip binding manually fist test this 
+sudo -iu netdisco
+~/bin/netdisco-do discover -d <CS-core-switch-ip>
+~/bin/netdisco-do discover -d <AS2-ip> -d <AS3-ip> -d <AS4-ip>
+~/bin/netdisco-do macsuck -d <AS2-ip> -d <AS3-ip> -d <AS4-ip>
+~/bin/netdisco-do arpnip -d <CS-core-switch-or-router-ip>
+
+
+First Time Manual Discovery
+---------------------------
+Run discovery from the core switch first:
+
+~/bin/netdisco-do discover -d 10.10.99.1
+
+If LLDP/CDP is enabled between switches, Netdisco may discover AS2, AS3, and AS4 automatically.
+If they are not discovered automatically, discover them manually:
+
+~/bin/netdisco-do discover -d 10.10.99.1
+~/bin/netdisco-do discover -d 10.10.99.2
+~/bin/netdisco-do discover -d 10.10.99.3
+~/bin/netdisco-do discover -d 10.10.99.4
+
+Then collect MAC and ARP information:
+
+~/bin/netdisco-do macwalk
+~/bin/netdisco-do arpwalk
+
+
+
+#After test successfully run than config auto discover and macsuck and arpnip
+
+content = """Netdisco Auto Discovery and Data Cleanup Documentation
+======================================================
+
+Network Information
+-------------------
+Management switch network:
+- 10.10.99.0/24
+
+Switch management IP addresses:
+- Core Switch: 10.10.99.1
+- AS2 Switch: 10.10.99.2
+- AS3 Switch: 10.10.99.3
+- AS4 Switch: 10.10.99.4
+
+User/PC VLAN networks:
+- VLAN 20 LAN PC: 10.10.20.0/24
+- VLAN 30 LAN PC: 10.10.30.0/24
+- VLAN 40 LAN PC: 10.10.40.0/24
+
+
+Important Concept
+-----------------
+Use the management subnet for Netdisco device discovery:
+- 10.10.99.0/24
+Do not use normal PC VLAN subnets for device discovery unless those IPs are actual switch/router management IPs.
+
+Netdisco learns user/PC devices from:
+- macwalk: MAC address table collection
+- arpwalk: ARP/IP collection
+- nbtwalk: optional Windows hostname detection
+
+Recommended deployment.yml Configuration
+----------------------------------------
+
+device_auth:
+  - tag: 'switches_v2_readonly'
+    community: 'YOUR_SNMP_COMMUNITY'
+    read: true
+    write: false
+    only:
+      - '10.10.99.0/24'
+
+discover_only:
+  - '10.10.99.0/24'
+
+macsuck_only:
+  - '10.10.99.0/24'
+
+arpnip_only:
+  - '10.10.99.0/24'
+
+nbtstat_only:
+  - '10.10.20.0/24'
+  - '10.10.30.0/24'
+  - '10.10.40.0/24'
+
+schedule:
+  discoverall:
+    when: '5 7 * * *'
+  macwalk:
+    when:
+      min: 20
+  arpwalk:
+    when:
+      min: 50
+  nbtwalk:
+    when: '0 8,13,21 * * *'
+#I think expire not good for everyday. so skip this
+  expire:
+    when: '30 23 * * *'
+
+Replace YOUR_SNMP_COMMUNITY with your real SNMP read-only community string.
+
+Schedule Explanation
+--------------------
+discoverall:
+- Runs discovery every day at 7:05 AM.
+
+macwalk:
+- Runs MAC address table collection every 20 minutes.
+- Helps Netdisco identify which device is connected to which switch port.
+
+arpwalk:
+- Runs ARP/IP collection every 50 minutes.
+- Helps Netdisco match IP addresses with MAC addresses.
+
+nbtwalk:
+- Runs NetBIOS scan at 8:00 AM, 1:00 PM, and 9:00 PM.
+- This is optional.
+
+expire:
+- Runs cleanup every day at 11:30 PM.
+
+
+Restart Netdisco After Editing deployment.yml
+---------------------------------------------
+Normal installation:
+
+~/bin/netdisco-backend restart
+~/bin/netdisco-web restart
+
+
+
+
+Check SNMP from Netdisco Server
+-------------------------------
+Example command:
+
+snmpwalk -v2c -c YOUR_SNMP_COMMUNITY 10.10.99.1 sysName.0
+
+If SNMP works, output should show the switch name.
+
+Example:
+
+SNMPv2-MIB::sysName.0 = STRING: Core-Switch
+
+Check SNMP on VLAN gateway IP, for example 10.10.20.1:
+
+snmpwalk -v2c -c YOUR_SNMP_COMMUNITY 10.10.20.1 sysName.0
+
+Important:
+If 10.10.20.1 is only a VLAN interface on the core switch, SNMP may reply only from the management IP 10.10.99.1.
+
+In that case, discover the core using:
+
+~/bin/netdisco-do discover -d 10.10.99.1
+
+
+Check Existing Devices in Netdisco
+----------------------------------
+Use this command:
+
+~/bin/netdisco-do psql -e "SELECT ip, dns, name FROM device ORDER BY ip;"
+
+This shows which devices are currently stored in Netdisco.
+
+
+Delete Discovered Switches
+--------------------------
+Delete discovered switch data:
+
+~/bin/netdisco-do delete -d 10.10.99.1
+~/bin/netdisco-do delete -d 10.10.99.2
+~/bin/netdisco-do delete -d 10.10.99.3
+~/bin/netdisco-do delete -d 10.10.99.4
+
+If you get this error:
+
+status error: unknown device: 10.10.10.1
+
+It means Netdisco does not have that IP saved as a discovered device.
+
+Example:
+If your real core switch IP is 10.10.99.1, deleting 10.10.10.1 will not work.
+You must delete the actual IP shown in the device table.
+
+
+Clear MAC and IP Node Data
+--------------------------
+To clear MAC/IP node data:
+
+~/bin/netdisco-do psql -e "DELETE FROM node;"
+~/bin/netdisco-do psql -e "DELETE FROM node_ip;"
+
+Then run fresh collection:
+
+~/bin/netdisco-do macwalk
+~/bin/netdisco-do arpwalk
+
+
+Full Rediscovery After Cleanup
+------------------------------
+After deleting old data, run:
+
+~/bin/netdisco-do discover -d 10.10.99.1
+~/bin/netdisco-do discover -d 10.10.99.2
+~/bin/netdisco-do discover -d 10.10.99.3
+~/bin/netdisco-do discover -d 10.10.99.4
+
+~/bin/netdisco-do macwalk
+~/bin/netdisco-do arpwalk
+
+
+Recommended Checklist
+---------------------
+1. SNMP read-only community is configured on Core, AS2, AS3, and AS4.
+2. Netdisco server can reach switch management IPs.
+3. UDP port 161 is allowed from Netdisco server to switches.
+4. LLDP or CDP is enabled between core and access switches.
+5. Core switch has ARP table for VLAN 20, VLAN 30, and VLAN 40.
+6. Access switches have MAC address tables for connected PCs.
+7. deployment.yml uses 10.10.99.0/24 for discovery.
+8. PC VLANs are used only for optional nbtwalk, not device discovery.
+
+
+Useful Commands Summary
+-----------------------
+Check devices:
+
+~/bin/netdisco-do psql -e "SELECT ip, dns, name FROM device ORDER BY ip;"
+
+Discover core:
+
+~/bin/netdisco-do discover -d 10.10.99.1
+
+Discover all switches manually:
+
+~/bin/netdisco-do discover -d 10.10.99.1
+~/bin/netdisco-do discover -d 10.10.99.2
+~/bin/netdisco-do discover -d 10.10.99.3
+~/bin/netdisco-do discover -d 10.10.99.4
+
+Run MAC walk:
+
+~/bin/netdisco-do macwalk
+
+Run ARP walk:
+
+~/bin/netdisco-do arpwalk
+
+Delete discovered switches:
+
+~/bin/netdisco-do delete -d 10.10.99.1
+~/bin/netdisco-do delete -d 10.10.99.2
+~/bin/netdisco-do delete -d 10.10.99.3
+~/bin/netdisco-do delete -d 10.10.99.4
+
+Clear MAC/IP data:
+
+~/bin/netdisco-do psql -e "DELETE FROM node;"
+~/bin/netdisco-do psql -e "DELETE FROM node_ip;"
+
+Restart Netdisco:
+
+~/bin/netdisco-backend restart
+~/bin/netdisco-web restart
+"""
+
+path = Path("/mnt/data/netdisco_documentation.txt")
+path.write_text(content, encoding="utf-8")
+print(path.as_posix())
+
+
+
